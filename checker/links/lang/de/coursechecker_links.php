@@ -26,7 +26,7 @@
  */
 
 $string['pluginname'] = 'Link Überprüfung';
-$string['pluginname_help'] = 'Diese Überprüfung extrahiert HTTP- und HTTPS-Links aus der Kursbeschreibung, aus Namen, Einleitungen und Inhalten von Aktivitäten sowie aus Buchkapiteln und Wiki-Seiten und prüft URL-Aktivitäten direkt auf Erreichbarkeit und konfigurierte HTML-Fehlerseitenmuster. Exakte URLs und Domains auf den konfigurierten Ausnahmelisten werden ebenso übersprungen wie durch Moodle-Sicherheitsrichtlinien blockierte Anfragen.';
+$string['pluginname_help'] = 'Diese Überprüfung extrahiert HTTP- und HTTPS-Links aus der Kursbeschreibung, aus Namen, Einleitungen und Inhalten von Aktivitäten sowie aus Buchkapiteln und Wiki-Seiten und prüft URL-Aktivitäten direkt auf Erreichbarkeit und konfigurierte HTML-Fehlerseitenmuster. Exakte URLs und Domains auf den konfigurierten Ausnahmelisten werden ebenso übersprungen wie durch Moodle-Sicherheitsrichtlinien blockierte Anfragen. Nur die konfigurierten HTTP-Codes und Verbindungsfehler sind Fehler; andere werden als Warnung zur manuellen Prüfung gemeldet.';
 $string['privacy:metadata'] = 'Diese Überprüfung speichert keine personenbezogenen Daten. Ihre Ergebnisse werden im Haupt-Plugin „Course Checker“ gespeichert.';
 
 // Ergebnisse.
@@ -61,3 +61,11 @@ $string['domain_whitelist_setting'] = 'Domain-Whitelist';
 $string['domain_whitelist_setting_desc'] = 'Diese Liste setzt die gesamte Domain auf die Whitelist. Bitte geben Sie eine URL pro Zeile ein, z. B. <code>https://moodle.org</code>';
 $string['html_error_regex_setting'] = 'Regex zur Erkennung von HTML-Fehlern';
 $string['html_error_regex_setting_desc'] = 'Regulärer Ausdruck zur Erkennung von Fehlerseiten, die dennoch HTTP 200 zurückgeben. Beispiel: Seiten, die "Fehler 404" oder "Seite nicht gefunden" enthalten.';
+$string['unverifiable_code'] = 'Der Link <b>{$a->url}</b> konnte nicht überprüft werden <b>(Status {$a->http_code})</b>: Die Website verlangt möglicherweise eine Anmeldung oder blockiert automatische Überprüfungen. <b>Prüfen Sie ihn manuell.</b>';
+$string['unverifiable_curl'] = 'Der Link <b>{$a->url}</b> konnte nicht überprüft werden: {$a->curl_error} (Code {$a->curl_errno}). <b>Prüfen Sie ihn manuell.</b>';
+$string['error_codes_setting'] = 'HTTP-Codes, die Fehler sind';
+$string['error_codes_setting_desc'] = 'Antwortcodes, die einen defekten Link bedeuten, durch Kommas getrennt. Andere Fehlercodes werden als Warnung zur manuellen Prüfung gemeldet, weil viele Websites auf automatische Überprüfungen mit 401, 403, 429 oder 999 antworten oder eine Anmeldung verlangen (zum Beispiel LinkedIn), obwohl sie im Browser funktionieren.';
+$string['curl_errors_setting'] = 'Verbindungsfehler, die Fehler sind';
+$string['curl_errors_setting_desc'] = 'cURL-Fehlercodes, die einen defekten Link bedeuten, durch Kommas getrennt. Standardmässig 6: Die Domain existiert nicht. Andere Verbindungsfehler wie eine Zeitüberschreitung (28) oder ein ungültiges Zertifikat (60) werden als Warnung gemeldet.';
+$string['concurrency_setting'] = 'Gleichzeitige Links';
+$string['concurrency_setting_desc'] = 'Anzahl Links, die gleichzeitig abgefragt werden. Ein höherer Wert ist schneller, aber manche Websites blockieren viele Anfragen hintereinander.';

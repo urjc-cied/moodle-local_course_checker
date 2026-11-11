@@ -35,3 +35,29 @@
     outline: none;
     box-shadow: none;
 }
+
+/* Results of a check grouped by status. */
+.local_course_checker__badge-error,
+.local_course_checker__badge-failed {
+    background-color: var(--bs-danger);
+    color: #fff;
+}
+.local_course_checker__badge-warning {
+    background-color: var(--bs-warning);
+    color: #000;
+}
+.local_course_checker__badge-info {
+    background-color: var(--bs-info);
+    color: #000;
+}
+.local_course_checker__badge-successful {
+    background-color: var(--bs-success);
+    color: #fff;
+}
+.local_course_checker__group-chevron {
+    display: inline-block;
+    transition: transform .15s ease-in-out;
+}
+.local_course_checker__group-toggle.collapsed .local_course_checker__group-chevron {
+    transform: rotate(-90deg);
+}

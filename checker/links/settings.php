@@ -108,3 +108,31 @@ $htmlerrorregex = new admin_setting_regex(
     PARAM_RAW_TRIMMED
 );
 $settings->add($htmlerrorregex);
+
+// HTTP codes that are broken links.
+$settings->add(new admin_setting_configtext(
+    curl_manager::ERROR_CODES_SETTING,
+    get_string('error_codes_setting', 'coursechecker_links'),
+    get_string('error_codes_setting_desc', 'coursechecker_links'),
+    curl_manager::ERROR_CODES_DEFAULT,
+    PARAM_TEXT
+));
+
+// Connection errors that are broken links.
+$settings->add(new admin_setting_configtext(
+    curl_manager::CURL_ERRORS_SETTING,
+    get_string('curl_errors_setting', 'coursechecker_links'),
+    get_string('curl_errors_setting_desc', 'coursechecker_links'),
+    curl_manager::CURL_ERRORS_DEFAULT,
+    PARAM_TEXT
+));
+
+// Number of links requested at the same time.
+$concurrency = new admin_setting_restrictedint(
+    curl_manager::CONCURRENCY_SETTING,
+    get_string('concurrency_setting', 'coursechecker_links'),
+    get_string('concurrency_setting_desc', 'coursechecker_links'),
+    curl_manager::CONCURRENCY_DEFAULT
+);
+$concurrency->set_maximum(50)->set_minimum(1);
+$settings->add($concurrency);

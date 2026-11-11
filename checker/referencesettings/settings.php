@@ -33,27 +33,7 @@ defined('MOODLE_INTERNAL') || die();
 $settings;
 
 /** @var array of coursesettings_fields to check $choices */
-$choices = [
-    // General.
-    'category' => get_string('category'),
-    'visible' => get_string('visible'),
-    'startdate' => get_string('startdate'),
-    // Summary.
-    'summary' => get_string('summary'),
-    // Course Format.
-    'format' => get_string('format'),
-    // Appearance.
-    'showgrades' => get_string('showgrades'),
-    'newsitems' => get_string('newsitemsnumber'),
-    'lang' => get_string('forcelanguage'),
-    'showreports' => get_string('showreports'),
-    // Files and uploads.
-    'legacyfiles' => get_string('courselegacyfiles'),
-    'maxbytes' => get_string('maximumupload'),
-    // Completion Tracking.
-    'enablecompletion' => get_string('enablecompletion', 'completion'),
-    'groupmode' => get_string('groupmode'),
-];
+$choices = array_map(fn(array $label): string => get_string($label[0], $label[1]), checker::SETTING_LABELS);
 
 // Referencesettings Checker Checklist settings.
 $visiblename = get_string('referencesettings_checklist', 'coursechecker_referencesettings');
@@ -85,4 +65,36 @@ $settings->add(new admin_setting_configcheckbox(
     $visiblename,
     $description,
     checker::REFERENCE_COURSE_FORMAT_OPTION_ENABLED_DEFAULT
+));
+
+// Referencesettings Checker gradebook categories setting.
+$settings->add(new admin_setting_configcheckbox(
+    checker::REQUIRE_GRADE_CATEGORIES,
+    new lang_string('referencesettings_requiregradecategories', 'coursechecker_referencesettings'),
+    new lang_string('referencesettings_requiregradecategories_help', 'coursechecker_referencesettings'),
+    checker::REQUIRE_GRADE_CATEGORIES_DEFAULT
+));
+
+// Referencesettings Checker gradebook category settings setting.
+$settings->add(new admin_setting_configcheckbox(
+    checker::COMPARE_GRADE_CATEGORY_SETTINGS,
+    new lang_string('referencesettings_comparegradecategorysettings', 'coursechecker_referencesettings'),
+    new lang_string('referencesettings_comparegradecategorysettings_help', 'coursechecker_referencesettings'),
+    checker::COMPARE_GRADE_CATEGORY_SETTINGS_DEFAULT
+));
+
+// Referencesettings Checker course image setting.
+$settings->add(new admin_setting_configcheckbox(
+    checker::REQUIRE_IMAGE,
+    new lang_string('referencesettings_requireimage', 'coursechecker_referencesettings'),
+    new lang_string('referencesettings_requireimage_help', 'coursechecker_referencesettings'),
+    checker::REQUIRE_IMAGE_DEFAULT
+));
+
+// Referencesettings Checker course dates setting.
+$settings->add(new admin_setting_configcheckbox(
+    checker::REQUIRE_START_DATE_ONLY,
+    new lang_string('referencesettings_requirestartdateonly', 'coursechecker_referencesettings'),
+    new lang_string('referencesettings_requirestartdateonly_help', 'coursechecker_referencesettings'),
+    checker::REQUIRE_START_DATE_ONLY_DEFAULT
 ));

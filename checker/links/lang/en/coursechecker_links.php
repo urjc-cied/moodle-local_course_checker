@@ -26,7 +26,7 @@
  */
 
 $string['pluginname'] = 'Link check';
-$string['pluginname_help'] = 'This check extracts HTTP and HTTPS links from the course summary, activity names, introductions and content, book chapters and wiki pages, and directly checks URL activities for reachability and configured HTML error-page patterns. Exact URLs and domains on the configured whitelists are skipped, as are requests blocked by Moodle security policies.';
+$string['pluginname_help'] = 'This check extracts HTTP and HTTPS links from the course summary, activity names, introductions and content, book chapters and wiki pages, and directly checks URL activities for reachability and configured HTML error-page patterns. Only the configured HTTP codes and connection errors are failures; others are warnings to check manually. Exact URLs and domains on the configured whitelists are skipped, as are requests blocked by Moodle security policies.';
 $string['privacy:metadata'] = 'This check does not store any personal data. Its results are stored by the Course Checker plugin.';
 
 // Results.
@@ -61,3 +61,11 @@ $string['domain_whitelist_setting'] = 'Domain whitelist';
 $string['domain_whitelist_setting_desc'] = 'This list whitelists the whole domain. Please add one URL per line e.g. <code>https://moodle.org</code>';
 $string['html_error_regex_setting'] = 'HTML error detection regex';
 $string['html_error_regex_setting_desc'] = 'Regular expression used to detect error pages that still return HTTP 200. Example: pages containing "Error 404" or "Page not found"".';
+$string['unverifiable_code'] = 'The link <b>{$a->url}</b> could not be verified <b>(Status {$a->http_code})</b>: the site may require a login or block automatic checks. <b>Check it manually.</b>';
+$string['unverifiable_curl'] = 'The link <b>{$a->url}</b> could not be verified: {$a->curl_error} (Code {$a->curl_errno}). <b>Check it manually.</b>';
+$string['error_codes_setting'] = 'HTTP codes that are errors';
+$string['error_codes_setting_desc'] = 'Response codes that mean that the link is broken, separated by commas. Other error codes are reported as warnings to check manually, because many sites answer 401, 403, 429 or 999 to automatic checks or ask to log in (for example LinkedIn), although they work in a browser.';
+$string['curl_errors_setting'] = 'Connection errors that are errors';
+$string['curl_errors_setting_desc'] = 'cURL error codes that mean that the link is broken, separated by commas. By default 6: the domain does not exist. Other connection errors, such as a timeout (28) or an invalid certificate (60), are reported as warnings.';
+$string['concurrency_setting'] = 'Simultaneous links';
+$string['concurrency_setting_desc'] = 'Number of links requested at the same time. A higher value finishes sooner, but some sites may block many requests in a row.';

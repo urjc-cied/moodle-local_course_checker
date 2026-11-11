@@ -16,6 +16,8 @@
 
 namespace local_course_checker\output;
 
+use local_course_checker\external\get_progress;
+
 use core\output\choicelist;
 use core\output\local\dropdown\status as status_dropdown;
 use local_course_checker\config;
@@ -209,6 +211,12 @@ class report_renderer extends plugin_renderer_base {
 
         if ($this->runinprogress || $this->queueinprogress) {
             $data->in_progress = true;
+            // The page asks for the progress and reloads itself when the checks finish.
+            $progress = get_progress::get_course_progress($this->course->id);
+            $data->progress = $progress['queued'] || !$progress['inprogress'] ?
+                get_string('progress_queued', 'local_course_checker') :
+                get_string('progress_pending', 'local_course_checker', $progress['pending']);
+            $this->page->requires->js_call_amd('local_course_checker/progress', 'init', [$this->course->id]);
         }
 
         return $this->render_from_template('local_course_checker/header_bar', $data);

@@ -77,6 +77,9 @@ class checker implements check_plugin_interface, mod_type_interface {
         foreach ($modules as $modname) {
             $this->check_module_instances($modinfo, $course, $modname);
         }
+
+        // The links are collected first and then requested in parallel.
+        $this->curlmanager->flush();
     }
 
     /**
@@ -188,9 +191,10 @@ class checker implements check_plugin_interface, mod_type_interface {
         // Be aware that XMLNS can be used.
         // Specially «math xmlns=¨http://www.w3.org/1998/Math/MathML¨».
         if (false !== preg_match_all('#\bhttps?:\/\/[^,\s()<>»¨]+(?:([\w\-]+)|([^,[:punct:],¨»\s]|\/))#', $text, $match)) {
-            $match = $match[0];
+            // The text is HTML, so entities like &amp; are decoded once, as a browser does.
+            $match = array_map(fn($url) => html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8'), $match[0]);
             // If we have <a href="$url">$url</a> $url is not counted twice.
-            return array_unique($match);
+            return array_values(array_unique($match));
         }
         return [];
     }

@@ -43,7 +43,7 @@ class checker implements check_plugin_interface, mod_type_interface {
     /**
      * Define the default of the setting section_whitelist_regex.
      */
-    const FORUMWHITELISTREGEX_DEFAULT = '/Modulentwicklungsforum/i';
+    const FORUMWHITELISTREGEX_DEFAULT = '/Foro de desarrollo del módulo/i';
 
     /**
      * Runs the checker.

@@ -81,6 +81,35 @@ class check implements renderable, templatable {
     }
 
     /**
+     * Group the results by status, with how many there are, so that problems are not mixed with correct results.
+     *
+     * The groups that need attention are open and the others are closed.
+     *
+     * @return array groups and a summary of the counts, for the template.
+     */
+    protected function get_result_groups(): array {
+        $groups = [];
+        $summary = [];
+        foreach (['error', 'failed', 'warning', 'info', 'successful'] as $status) {
+            $results = $this->renderedresults[$status] ?? [];
+            if (empty($results)) {
+                continue;
+            }
+            $label = get_string('result_group_' . $status, 'local_course_checker');
+            $groups[] = [
+                'status' => $status,
+                'id' => $this->check->get('check_name') . '-' . $status,
+                'label' => $label,
+                'count' => count($results),
+                'results' => $results,
+                'expanded' => in_array($status, ['error', 'failed', 'warning'], true),
+            ];
+            $summary[] = ['status' => $status, 'label' => $label, 'count' => count($results)];
+        }
+        return ['groups' => $groups, 'summary' => $summary, 'multiplegroups' => count($groups) > 1];
+    }
+
+    /**
      * Export check data for Mustache template rendering.
      *
      * Includes check name, status, timestamp, rendered results, and optionally an action URL if not in progress.
@@ -101,6 +130,7 @@ class check implements renderable, templatable {
             'result' => $this->renderedresults,
             'check_is_running' => $this->inprogress,
         ];
+        $data += $this->get_result_groups();
         if ($data['status'] === 'running') {
             $data['check_is_running'] = true;
         }

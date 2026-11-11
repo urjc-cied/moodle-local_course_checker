@@ -9,6 +9,7 @@
 !checker/quiz
 !checker/referencesettings
 !checker/rubrics_settings
+!checker/structure
 !checker/subheadings
 !checker/submission_feedbacktype
 !checker/userdata
@@ -21,6 +22,7 @@
 !checker/quiz/*
 !checker/referencesettings/*
 !checker/rubrics_settings/*
+!checker/structure/*
 !checker/subheadings/*
 !checker/submission_feedbacktype/*
 !checker/userdata/*

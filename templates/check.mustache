@@ -40,15 +40,23 @@
             "<div>Check result HTML block 2</div>"
         ],
         "warning": [],
-        "successful": []
+        "successful": [],
+        "multiplegroups": false,
+        "groups": [],
+        "summary": []
     }
 }}
 <div class="local_course_checker__section mb-1">
-    <div class="d-flex local_course_checker__check local_course_checker__check-{{status}} align-items-center p-2 border rounded-lg">
-        <div class="d-flex align-items-start position-relative">
-            <a class="me-auto mb-0 link-offset-2 link-underline link-underline-opacity-0 text-body" data-bs-toggle="collapse" href="#{{check_name}}">
+    <div class="d-flex local_course_checker__check local_course_checker__check-{{status}} align-items-center p-2 border rounded-3">
+        <div class="d-flex align-items-center flex-wrap position-relative">
+            <a class="me-2 mb-0 link-offset-2 link-underline link-underline-opacity-0 text-body" data-bs-toggle="collapse" href="#{{check_name}}">
                 {{plugin_check_name}}
             </a>
+            {{#multiplegroups}}
+                {{#summary}}
+                    <span class="badge local_course_checker__badge-{{status}} me-1" title="{{label}}">{{count}} {{label}}</span>
+                {{/summary}}
+            {{/multiplegroups}}
         </div>
         <div class="flex-fill d-flex justify-content-end align-self-center">
             {{#timestamp}}
@@ -98,11 +106,25 @@
     </div>
     {{#result}}
         <div id="{{check_name}}" class="collapse">
-            {{#error}}{{{.}}}{{/error}}
-            {{#failed}}{{{.}}}{{/failed}}
-            {{#warning}}{{{.}}}{{/warning}}
-            {{#info}}{{{.}}}{{/info}}
-            {{#successful}}{{{.}}}{{/successful}}
+            {{^multiplegroups}}
+                {{#groups}}{{#results}}{{{.}}}{{/results}}{{/groups}}
+            {{/multiplegroups}}
+            {{#multiplegroups}}
+                {{#groups}}
+                    <div class="local_course_checker__group mt-2 ms-2">
+                        <a class="local_course_checker__group-toggle d-inline-flex align-items-center text-body fw-bold text-decoration-none{{^expanded}} collapsed{{/expanded}}"
+                           data-bs-toggle="collapse" href="#{{id}}" role="button"
+                           aria-expanded="{{#expanded}}true{{/expanded}}{{^expanded}}false{{/expanded}}" aria-controls="{{id}}">
+                            <span class="local_course_checker__group-chevron me-1">{{#pix}}t/expandedchevron,core{{/pix}}</span>
+                            <span class="badge local_course_checker__badge-{{status}} me-2">{{count}}</span>
+                            {{label}}
+                        </a>
+                        <div id="{{id}}" class="collapse{{#expanded}} show{{/expanded}}">
+                            {{#results}}{{{.}}}{{/results}}
+                        </div>
+                    </div>
+                {{/groups}}
+            {{/multiplegroups}}
         </div>
     {{/result}}
 </div>

@@ -26,7 +26,7 @@
  */
 
 $string['pluginname'] = 'Reference settings check';
-$string['pluginname_help'] = 'This check compares the selected general course settings with a reference course and can additionally compare course-level filter states and course-format options. Only configured setting groups are checked; unavailable selected course properties are reported as failures.';
+$string['pluginname_help'] = 'This check compares the selected general course settings with a reference course and can additionally compare course-level filter states and course-format options. Only configured setting groups are checked; unavailable selected course properties are reported as failures. It can also require a course image and a start date without an end date; these two rules do not apply to the reference course. It also compares the names and the settings of the gradebook categories.';
 $string['privacy:metadata'] = 'This check does not store any personal data. Its results are stored by the Course Checker plugin.';
 
 // String specific for the reference course settings checker.
@@ -51,3 +51,22 @@ $string['referenceformatoptions_success'] = 'All format options are correctly se
 $string['referenceformatoptions_enabled'] = 'Reference settings format options check enabled';
 $string['referenceformatoptions_enabled_help'] =
         'Please enable this to compare all course format options with the reference course.';
+// Course image and dates.
+$string['referencesettings_dates_success'] = 'The course has a start date and no end date';
+$string['referencesettings_enddate_set'] = 'The course has an end date ({$a->enddate}). It must only have a start date.';
+$string['referencesettings_gradecategories_success'] = 'The gradebook has the categories of the reference course: {$a->expected}.';
+$string['referencesettings_gradecategory_extra'] = 'The gradebook category "{$a->name}" is not expected: the gradebook must have only the categories of the reference course ({$a->expected}).';
+$string['referencesettings_gradecategory_missing'] = 'The category "{$a->name}" is missing from the gradebook.';
+$string['referencesettings_image_missing'] = 'The course has no course image.';
+$string['referencesettings_image_success'] = 'The course has a course image';
+$string['referencesettings_requiregradecategories'] = 'Require the gradebook categories';
+$string['referencesettings_requiregradecategories_help'] = 'The gradebook must have exactly the categories of the reference course, compared by name. Case is ignored.';
+$string['referencesettings_comparegradecategorysettings'] = 'Compare the settings of the gradebook categories';
+$string['referencesettings_comparegradecategorysettings_help'] = 'Compares with the reference course the settings of each gradebook category with the same name and of the course total: aggregation, empty grades, outcomes, dropped or kept grades, grade type, maximum, minimum and passing grades, visibility, display type, decimals and weight or extra credit. Only applies if the gradebook categories are required.';
+$string['referencesettings_gradecategory_setting_failing'] = 'The setting "{$a->setting}" of the gradebook category "{$a->category}" is not correct{$a->comparison}';
+$string['referencesettings_gradecategory_settings_success'] = 'The gradebook category "{$a->category}" has the same settings as the reference course.';
+$string['referencesettings_requireimage'] = 'Require a course image';
+$string['referencesettings_requireimage_help'] = 'Checks that the course has an image. It does not apply to the reference course.';
+$string['referencesettings_requirestartdateonly'] = 'Require only a start date';
+$string['referencesettings_requirestartdateonly_help'] = 'Checks that the course has a start date and no end date. It does not apply to the reference course.';
+$string['referencesettings_startdate_missing'] = 'The course has no start date.';

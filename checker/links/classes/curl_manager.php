@@ -16,7 +16,6 @@
 
 namespace coursechecker_links;
 
-use curl;
 use local_course_checker\config;
 use local_course_checker\db\model\check;
 use local_course_checker\translation_manager;
@@ -56,6 +55,28 @@ class curl_manager {
     public const HTML_ERROR_REGEX_SETTING = 'coursechecker_links/html_error_regex';
     /** @var string Default regex pattern for HTML error pages. */
     public const HTML_ERROR_REGEX_DEFAULT = '/(page not found)/i';
+    /** @var string Configuration path for the HTTP codes that are reported as broken links. */
+    public const ERROR_CODES_SETTING = 'coursechecker_links/error_codes';
+    /** @var string Default HTTP codes that are reported as broken links: the page does not exist or the server fails. */
+    public const ERROR_CODES_DEFAULT = '404, 410, 500, 502, 504';
+    /** @var string Configuration path for the connection errors that are reported as broken links. */
+    public const CURL_ERRORS_SETTING = 'coursechecker_links/curl_errors';
+    /** @var string Default connection errors that are reported as broken links: the domain does not exist. */
+    public const CURL_ERRORS_DEFAULT = '6';
+    /** @var int[] HTTP codes that are reported as broken links. Other errors are warnings, because they are often false. */
+    protected array $errorcodes;
+    /** @var int[] Connection errors of cURL that are reported as broken links. Others are warnings. */
+    protected array $curlerrors;
+    /** @var string Configuration path for the number of links requested at the same time. */
+    public const CONCURRENCY_SETTING = 'coursechecker_links/concurrency';
+    /** @var int Default number of links requested at the same time. */
+    public const CONCURRENCY_DEFAULT = 10;
+    /** @var int Maximum number of redirects followed for a link. */
+    protected const MAX_REDIRECTS = 10;
+    /** @var array Results already obtained in this run, indexed by URL: [status, message, customdata]. */
+    protected array $results = [];
+    /** @var array Links waiting to be requested, in order: [url, parsed url, title, link]. */
+    protected array $pending = [];
     /** @var array List of domain names that should be ignored during link checking. */
     protected array $ignoreddomains;
     /** @var array List of full URLs that should be ignored during link checking. */
@@ -78,6 +99,8 @@ class curl_manager {
         $whitelist = (string) config::get(self::DOMAIN_WHITELIST_SETTING, self::DOMAIN_WHITELIST_DEFAULT);
         $this->ignoreddomains = array_filter(array_map('trim', explode("\n", $whitelist)));
         $this->htmlerrorregex = (string) config::get(self::HTML_ERROR_REGEX_SETTING, self::HTML_ERROR_REGEX_DEFAULT);
+        $this->errorcodes = self::parse_codes((string) config::get(self::ERROR_CODES_SETTING, self::ERROR_CODES_DEFAULT));
+        $this->curlerrors = self::parse_codes((string) config::get(self::CURL_ERRORS_SETTING, self::CURL_ERRORS_DEFAULT));
         $this->curloptions = [
             "CURLOPT_CONNECTTIMEOUT" => (int) config::get(self::CONNECT_TIMEOUT_SETTING, self::CONNECT_TIMEOUT_DEFAULT),
             "CURLOPT_TIMEOUT" => (int) config::get(self::TIMEOUT_SETTING, self::TIMEOUT_DEFAULT),
@@ -136,54 +159,223 @@ class curl_manager {
             );
             return;
         }
-        // Use curl to checks the urls.
-        // You can use "$settings['debug'] = true;" to debug the curl request.
-        $curl = new curl();
+        // The links are requested later, all together, so that they can be requested in parallel.
+        $this->pending[] = [$url, $parseurl, $title, $link];
+    }
 
-        $httpheader = [];
-        $httpheader[] = "Accept-Encoding: gzip, deflate, br";
-        $httpheader[] = "Accept:*/*";
+    /**
+     * Request the pending links in parallel and report their results in the order they were found.
+     *
+     * The same link is often used several times in a course, so it is only requested once.
+     */
+    public function flush(): void {
+        $urls = [];
+        foreach ($this->pending as [$url, $parseurl]) {
+            if (!isset($this->results[$url])) {
+                $urls[$url] = $parseurl;
+            }
+        }
+        $this->results += $this->request_urls($urls);
+        foreach ($this->pending as [$url, , $title, $link]) {
+            [$status, $message, $customdata] = $this->results[$url];
+            $this->check->{'add_' . $status}($title, $link, $message, $customdata);
+        }
+        $this->pending = [];
+    }
 
-        $curloptions = array_merge($this->curloptions, [
-            "CURLOPT_HTTPHEADER" => $httpheader,
-            "CURLOPT_REFERER" => $url, // Essentially this tells the server which page sent you there.
-        ]);
+    /**
+     * Get a list of numeric codes from a text separated by commas, spaces or lines.
+     *
+     * @param string $text
+     * @return int[]
+     */
+    public static function parse_codes(string $text): array {
+        return array_map('intval', preg_split('/[^0-9]+/', $text, -1, PREG_SPLIT_NO_EMPTY));
+    }
 
-        $curl->head($url, $curloptions);
-        $curlinfo = $curl->get_info();
+    /**
+     * Request several URLs and get the result of the check of each one.
+     *
+     * Only the configured HTTP codes and connection errors are failures. Other errors are warnings: many sites answer
+     * 401, 403, 429 or 999 to automatic requests, or ask to log in, but work in a browser.
+     *
+     * @param array $urls Parsed URLs indexed by URL.
+     * @return array Results indexed by URL: [status, message, customdata].
+     */
+    protected function request_urls(array $urls): array {
+        $heads = $this->request_all(array_keys($urls), 'head');
+        // Some servers reject HEAD requests, so a GET request is tried before reporting an error.
+        // A page that works is also downloaded to look for the configured error text.
+        $gets = array_filter(array_keys($urls), fn($url) => !$this->is_valid_code($heads[$url]['http_code']) ||
+            (!empty($this->htmlerrorregex) && str_contains(strtolower($heads[$url]['content_type']), 'text/html')));
+        $gets = $this->request_all(array_values($gets), 'get');
 
-        $code = (int) $curlinfo["http_code"];
+        $results = [];
+        foreach ($urls as $url => $parseurl) {
+            $results[$url] = $this->get_result($url, $parseurl, $heads[$url], $gets[$url] ?? null);
+        }
+        return $results;
+    }
+
+    /**
+     * Get the result of the check of a URL from its requests.
+     *
+     * @param string $url
+     * @param array $parseurl
+     * @param array $head Response to the HEAD request.
+     * @param array|null $get Response to the GET request, if there was one.
+     * @return array [status, message, customdata]
+     */
+    protected function get_result(string $url, array $parseurl, array $head, ?array $get): array {
+        $customdata = ['external_link' => $url];
+        $curlinfo = $this->is_valid_code($head['http_code']) || $get === null ? $head : $get;
+
+        $code = $curlinfo['http_code'];
         if ($code === 0) {
-            // Code 0: timeout or other curl error.
-            $context = $parseurl + ["url" => $url, "curl_errno" => $curl->get_errno(), "curl_error" => $curl->error];
-            $message = translation_manager::generate("error_curl", "coursechecker_links", $context);
-            $this->check->add_failed($title, $link, $message, ['external_link' => $url]);
-            return;
+            $context = $parseurl + ["url" => $url, "curl_errno" => $curlinfo['errno'], "curl_error" => $curlinfo['error']];
+            $failed = in_array($curlinfo['errno'], $this->curlerrors, true);
+            $identifier = $failed ? 'error_curl' : 'unverifiable_curl';
+            return [$failed ? 'failed' : 'warning', translation_manager::generate($identifier, 'coursechecker_links', $context),
+                $customdata];
         }
 
         $context = $parseurl + ["url" => $url, "http_code" => $code];
-        $customdata['external_link'] = $url;
-        if ($code >= 200 && $code < 400) {
-            $contenttype = $curlinfo['content_type'] ?? '';
-            $customdata['filetype'] = $this->normalize_content_type($contenttype);
-            if (is_string($contenttype) && str_contains(strtolower($contenttype), 'text/html')) {
-                $htmlcontent = $this->get_html_content($url);
-
-                if ($htmlcontent !== null && !empty($this->htmlerrorregex) && preg_match($this->htmlerrorregex, $htmlcontent)) {
-                    $message = translation_manager::generate('html_error_detected', 'coursechecker_links', $context);
-                    $this->check->add_warning($title, $link, $message, $customdata);
-                    return;
-                }
-            }
-
-            $message = translation_manager::generate('url_code_valid', 'coursechecker_links', $context);
-            $this->check->add_successful($title, $link, $message, $customdata);
-            return;
+        if (!$this->is_valid_code($code)) {
+            $failed = in_array($code, $this->errorcodes, true);
+            $identifier = $failed ? 'error_code' : 'unverifiable_code';
+            return [$failed ? 'failed' : 'warning', translation_manager::generate($identifier, 'coursechecker_links', $context),
+                $customdata];
         }
 
-        // Code != 0 means it's a http error.
-        $message = translation_manager::generate("error_code", "coursechecker_links", $context);
-        $this->check->add_failed($title, $link, $message, $customdata);
+        $customdata['filetype'] = $this->normalize_content_type($curlinfo['content_type']);
+        $content = $get['content'] ?? null;
+        if (!empty($this->htmlerrorregex) && $content !== null && preg_match($this->htmlerrorregex, $content)) {
+            return ['warning', translation_manager::generate('html_error_detected', 'coursechecker_links', $context), $customdata];
+        }
+        return ['successful', translation_manager::generate('url_code_valid', 'coursechecker_links', $context), $customdata];
+    }
+
+    /**
+     * Tells if an HTTP code means that the link works.
+     *
+     * @param int $code
+     * @return bool
+     */
+    protected function is_valid_code(int $code): bool {
+        return $code >= 200 && $code < 400;
+    }
+
+    /**
+     * Send the same kind of request to several URLs in parallel.
+     *
+     * Redirects are followed here, not by cURL, so that each new address is checked against the Moodle HTTP security
+     * settings before it is requested, as the Moodle cURL class does.
+     *
+     * @param string[] $urls
+     * @param string $method head or get.
+     * @return array Responses indexed by URL: HTTP code, content type, cURL error and, for a GET request, the content.
+     */
+    protected function request_all(array $urls, string $method): array {
+        $concurrency = max(1, (int) config::get(self::CONCURRENCY_SETTING, self::CONCURRENCY_DEFAULT));
+        $security = new \core\files\curl_security_helper();
+        $queue = array_map(fn($url) => [$url, $url, 0], $urls);
+        $responses = [];
+        $active = [];
+        $multi = curl_multi_init();
+        // Cookies are shared between the requests, because some sites redirect in a loop until a cookie is set.
+        $share = curl_share_init();
+        curl_share_setopt($share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+
+        while ($queue || $active) {
+            while ($queue && count($active) < $concurrency) {
+                [$url, $target, $redirects] = array_shift($queue);
+                $handle = $this->create_handle($target, $method);
+                curl_setopt($handle, CURLOPT_SHARE, $share);
+                curl_multi_add_handle($multi, $handle);
+                $active[spl_object_id($handle)] = [$handle, $url, $redirects];
+            }
+            curl_multi_exec($multi, $running);
+            if (curl_multi_select($multi, 1.0) === -1) {
+                usleep(100000);
+            }
+            while ($done = curl_multi_info_read($multi)) {
+                $handle = $done['handle'];
+                [, $url, $redirects] = $active[spl_object_id($handle)];
+                unset($active[spl_object_id($handle)]);
+                $info = curl_getinfo($handle);
+                $code = (int) ($info['http_code'] ?? 0);
+                $next = (string) ($info['redirect_url'] ?? '');
+                $errno = (int) $done['result'];
+                $response = [
+                    'http_code' => $errno ? 0 : $code,
+                    'content_type' => is_string($info['content_type'] ?? null) ? $info['content_type'] : '',
+                    'errno' => $errno,
+                    'error' => $errno ? (curl_error($handle) ?: curl_strerror($errno)) : '',
+                    'content' => $method === 'get' && !$errno && $this->is_valid_code($code) ? curl_multi_getcontent($handle) : null,
+                ];
+                curl_multi_remove_handle($multi, $handle);
+                curl_close($handle);
+
+                if (!$errno && $code >= 300 && $code < 400 && $next !== '') {
+                    if ($redirects >= self::MAX_REDIRECTS) {
+                        $response['http_code'] = 0;
+                        $response['errno'] = CURLE_TOO_MANY_REDIRECTS;
+                        $response['error'] = curl_strerror(CURLE_TOO_MANY_REDIRECTS);
+                    } else if ($security->url_is_blocked($next)) {
+                        $response['http_code'] = 0;
+                        $response['errno'] = -1;
+                        $response['error'] = $security->get_blocked_url_string();
+                    } else {
+                        $queue[] = [$url, $next, $redirects + 1];
+                        continue;
+                    }
+                }
+                $responses[$url] = $response;
+            }
+        }
+        curl_multi_close($multi);
+        curl_share_close($share);
+        return $responses;
+    }
+
+    /**
+     * Create a cURL handle for a request, with the settings of this check and the proxy of the site.
+     *
+     * @param string $url
+     * @param string $method head or get.
+     * @return \CurlHandle
+     */
+    protected function create_handle(string $url, string $method): \CurlHandle {
+        global $CFG;
+
+        $accept = $method === 'get' ? 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' : '*/*';
+        $handle = curl_init($url);
+        $options = [
+            CURLOPT_NOBODY => $method === 'head',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_CONNECTTIMEOUT => $this->curloptions['CURLOPT_CONNECTTIMEOUT'],
+            CURLOPT_TIMEOUT => $this->curloptions['CURLOPT_TIMEOUT'],
+            CURLOPT_USERAGENT => $this->curloptions['CURLOPT_USERAGENT'],
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_HTTPHEADER => ['Accept: ' . $accept],
+            CURLOPT_REFERER => $url,
+            CURLOPT_COOKIEFILE => '',
+        ];
+        if (!empty($CFG->proxyhost) && !is_proxybypass($url)) {
+            $options[CURLOPT_PROXY] = $CFG->proxyhost . (empty($CFG->proxyport) ? '' : ':' . $CFG->proxyport);
+            if (!empty($CFG->proxyuser)) {
+                $options[CURLOPT_PROXYUSERPWD] = $CFG->proxyuser . ':' . ($CFG->proxypassword ?? '');
+            }
+            if (!empty($CFG->proxytype) && $CFG->proxytype === 'SOCKS5') {
+                $options[CURLOPT_PROXYTYPE] = CURLPROXY_SOCKS5;
+            }
+        }
+        curl_setopt_array($handle, $options);
+        return $handle;
     }
 
     /**
@@ -249,35 +441,5 @@ class curl_manager {
         }
 
         return 'other';
-    }
-
-    /**
-     * Fetches the HTML content of a URL using CURL GET.
-     *
-     * @param string $url The URL to fetch.
-     * @return string|null The response body, or null on failure.
-     */
-    protected function get_html_content(string $url): ?string {
-        $curl = new curl();
-
-        $httpheader = [];
-        $httpheader[] = 'Accept-Encoding: gzip, deflate, br';
-        $httpheader[] = 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
-
-        $curloptions = array_merge($this->curloptions, [
-            'CURLOPT_HTTPHEADER' => $httpheader,
-            'CURLOPT_REFERER' => $url,
-        ]);
-
-        $content = $curl->get($url, null, $curloptions);
-
-        $info = $curl->get_info();
-        $code = (int) ($info['http_code'] ?? 0);
-
-        if ($code >= 200 && $code < 400 && is_string($content)) {
-            return $content;
-        }
-
-        return null;
     }
 }

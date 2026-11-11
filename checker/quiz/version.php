@@ -25,7 +25,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'coursechecker_quiz';
-$plugin->version = 2026083100;
+$plugin->version = 2026111102;
 $plugin->requires = 2024042203;
 $plugin->release = 'v4.4-r1';
 $plugin->maturity = MATURITY_STABLE;

@@ -24,6 +24,7 @@
     {
         "timestamp": "Monday, 2024-05-13 14:23",
         "in_progress": false,
+        "progress": "",
         "action_url": "/local/course_checker/action.php",
         "courseid": 123,
         "sesskey": "ABC123XYZ",
@@ -31,9 +32,13 @@
     }
 }}
 <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
-    <span class="text-left">{{#str}}checker_last_run, local_course_checker, {{#timestamp}}{{timestamp}}{{/timestamp}}{{^timestamp}}{{#str}}checker_never_run, local_course_checker{{/str}}{{/timestamp}}{{/str}}</span>
+    <span class="text-start">{{#str}}checker_last_run, local_course_checker, {{#timestamp}}{{timestamp}}{{/timestamp}}{{^timestamp}}{{#str}}checker_never_run, local_course_checker{{/str}}{{/timestamp}}{{/str}}</span>
     <div class="d-flex">
         {{#in_progress}}
+            <span class="d-flex align-items-center me-3 text-muted" role="status" aria-live="polite">
+                <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                <span data-region="local_course_checker-progress">{{progress}}</span>
+            </span>
             <button type="button" class="btn btn-primary" disabled>{{#str}}check_course_in_progress, local_course_checker{{/str}}</button>
         {{/in_progress}}
         {{^in_progress}}

@@ -19,12 +19,15 @@ namespace coursechecker_referencesettings;
 use coding_exception;
 use context_course;
 use dml_exception;
+use core_course\external\course_summary_exporter;
+use core_text;
 use local_course_checker\config;
 use local_course_checker\db\model\check;
 use local_course_checker\model\check_plugin_interface;
 use local_course_checker\resolution_link_helper;
 use local_course_checker\translation_manager;
 use moodle_exception;
+use moodle_url;
 use stdClass;
 
 /**
@@ -45,7 +48,96 @@ class checker implements check_plugin_interface {
     /** Config path for the reference course settings (e.g., checklist of options). */
     const REFERENCE_COURSE_SETTINGS = 'coursechecker_referencesettings/checklist';
     /** Default value for the reference course settings. */
-    const REFERENCE_COURSE_SETTINGS_DEFAULT = ['format' => 1];
+    const REFERENCE_COURSE_SETTINGS_DEFAULT = [
+        'format' => 1,
+        'theme' => 1,
+        'lang' => 1,
+        'calendartype' => 1,
+        'newsitems' => 1,
+        'showgrades' => 1,
+        'showreports' => 1,
+        'showactivitydates' => 1,
+        'legacyfiles' => 1,
+        'maxbytes' => 1,
+        'pdfexportfont' => 1,
+        'enablecompletion' => 1,
+        'showcompletionconditions' => 1,
+        'groupmode' => 1,
+        'groupmodeforce' => 1,
+        'defaultgroupingid' => 1,
+    ];
+    /** Course settings that can be compared, with the language string of their label. */
+    const SETTING_LABELS = [
+        // General.
+        'category' => ['category', 'moodle'],
+        'visible' => ['visible', 'moodle'],
+        'startdate' => ['startdate', 'moodle'],
+        // Summary.
+        'summary' => ['summary', 'moodle'],
+        // Course Format.
+        'format' => ['format', 'moodle'],
+        // Appearance.
+        'theme' => ['forcetheme', 'moodle'],
+        'lang' => ['forcelanguage', 'moodle'],
+        'calendartype' => ['forcecalendartype', 'calendar'],
+        'newsitems' => ['newsitemsnumber', 'moodle'],
+        'showgrades' => ['showgrades', 'moodle'],
+        'showreports' => ['showreports', 'moodle'],
+        'showactivitydates' => ['showactivitydates', 'moodle'],
+        // Files and uploads.
+        'legacyfiles' => ['courselegacyfiles', 'moodle'],
+        'maxbytes' => ['maximumupload', 'moodle'],
+        'pdfexportfont' => ['pdfexportfont', 'course'],
+        // Completion Tracking.
+        'enablecompletion' => ['enablecompletion', 'completion'],
+        'showcompletionconditions' => ['showcompletionconditions', 'completion'],
+        // Groups.
+        'groupmode' => ['groupmode', 'group'],
+        'groupmodeforce' => ['groupmodeforce', 'group'],
+        'defaultgroupingid' => ['defaultgrouping', 'group'],
+    ];
+    /** Config path for requiring a course image. */
+    const REQUIRE_IMAGE = 'coursechecker_referencesettings/requireimage';
+    /** Default value for requiring a course image. */
+    const REQUIRE_IMAGE_DEFAULT = 1;
+    /** Config path for requiring a start date and no end date. */
+    const REQUIRE_START_DATE_ONLY = 'coursechecker_referencesettings/requirestartdateonly';
+    /** Default value for requiring a start date and no end date. */
+    const REQUIRE_START_DATE_ONLY_DEFAULT = 1;
+    /** Config path for requiring the gradebook categories of the reference course. */
+    const REQUIRE_GRADE_CATEGORIES = 'coursechecker_referencesettings/requiregradecategories';
+    /** Default value for requiring the gradebook categories of the reference course. */
+    const REQUIRE_GRADE_CATEGORIES_DEFAULT = 1;
+    /** Config path for comparing the settings of the gradebook categories with the reference course. */
+    const COMPARE_GRADE_CATEGORY_SETTINGS = 'coursechecker_referencesettings/comparegradecategorysettings';
+    /** Default value for comparing the settings of the gradebook categories with the reference course. */
+    const COMPARE_GRADE_CATEGORY_SETTINGS_DEFAULT = 1;
+    /** Names of the aggregation methods of the gradebook, in the grades language file. */
+    const GRADE_AGGREGATIONS = [
+        0 => 'aggregatemean',
+        2 => 'aggregatemedian',
+        4 => 'aggregatemin',
+        6 => 'aggregatemax',
+        8 => 'aggregatemode',
+        10 => 'aggregateweightedmean',
+        11 => 'aggregateweightedmean2',
+        12 => 'aggregateextracreditmean',
+        13 => 'aggregatesum',
+    ];
+    /** Names of the grade types, in the grades language file. */
+    const GRADE_TYPES = [0 => 'typenone', 1 => 'typevalue', 2 => 'typescale', 3 => 'typetext'];
+    /** Names of the grade display types, in the grades language file (0 is the default of the site). */
+    const GRADE_DISPLAY_TYPES = [
+        1 => 'real',
+        2 => 'percentage',
+        3 => 'letter',
+        12 => 'realpercentage',
+        13 => 'realletter',
+        21 => 'percentagereal',
+        23 => 'percentageletter',
+        31 => 'letterreal',
+        32 => 'letterpercentage',
+    ];
     /** Config path for enabling filtering of reference course settings. */
     const REFERENCE_COURSE_FILTER_ENABLED = 'coursechecker_referencesettings/filter';
     /** Default value for enabling the reference course filter. */
@@ -100,6 +192,293 @@ class checker implements check_plugin_interface {
 
         // Compare the course format options.
         $this->compare_course_format_options($currentcourse, $referencecourse);
+
+        // Compare the categories of the gradebook.
+        $this->compare_grade_categories($currentcourse, $referencecourse);
+
+        // The template is only the model of the other courses: these rules are for the courses made from it.
+        if ($currentcourse->id != $referencecourse->id) {
+            $this->check_course_image($currentcourse);
+            $this->check_course_dates($currentcourse);
+        }
+    }
+
+    /**
+     * Checks that the gradebook has exactly the categories of the reference course, if required.
+     *
+     * Only the names are compared, ignoring case, and then the settings of each category, if enabled.
+     *
+     * @param stdClass $course
+     * @param stdClass $referencecourse
+     */
+    protected function compare_grade_categories(stdClass $course, stdClass $referencecourse): void {
+        if (!config::get(self::REQUIRE_GRADE_CATEGORIES, self::REQUIRE_GRADE_CATEGORIES_DEFAULT)) {
+            return;
+        }
+        $component = 'coursechecker_referencesettings';
+        $link = (new moodle_url('/grade/edit/tree/index.php', ['id' => $course->id]))->out(false);
+        $normalise = fn(string $name): string => core_text::strtolower(trim($name));
+
+        $missing = [];
+        foreach ($this->get_grade_category_names($referencecourse->id) as $name) {
+            $missing[$normalise($name)] = $name;
+        }
+        $expected = implode(', ', $missing);
+
+        $valid = true;
+        foreach ($this->get_grade_category_names($course->id) as $name) {
+            // A category is only accepted once, so a repeated one is reported as not being in the reference course.
+            if (isset($missing[$normalise($name)])) {
+                unset($missing[$normalise($name)]);
+            } else {
+                $valid = false;
+                $this->check->add_failed('', $link, translation_manager::generate(
+                    'referencesettings_gradecategory_extra',
+                    $component,
+                    ['name' => $name, 'expected' => $expected]
+                ));
+            }
+        }
+        foreach ($missing as $name) {
+            $valid = false;
+            $this->check->add_failed('', $link, translation_manager::generate(
+                'referencesettings_gradecategory_missing',
+                $component,
+                ['name' => $name]
+            ));
+        }
+        if ($valid) {
+            $this->check->add_successful('', $link, translation_manager::generate(
+                'referencesettings_gradecategories_success',
+                $component,
+                ['expected' => $expected]
+            ));
+        }
+        if (config::get(self::COMPARE_GRADE_CATEGORY_SETTINGS, self::COMPARE_GRADE_CATEGORY_SETTINGS_DEFAULT)) {
+            $this->compare_grade_category_settings($course, $referencecourse);
+        }
+    }
+
+    /**
+     * Compares the settings of each gradebook category, and of the course total, with the reference course.
+     *
+     * Categories are matched by name, ignoring case. Missing and extra categories are reported by compare_grade_categories().
+     *
+     * @param stdClass $course
+     * @param stdClass $referencecourse
+     */
+    protected function compare_grade_category_settings(stdClass $course, stdClass $referencecourse): void {
+        $component = 'coursechecker_referencesettings';
+        $link = (new moodle_url('/grade/edit/tree/index.php', ['id' => $course->id]))->out(false);
+        $current = $this->get_grade_categories($course->id);
+
+        foreach ($this->get_grade_categories($referencecourse->id) as $key => $reference) {
+            if (!isset($current[$key])) {
+                continue;
+            }
+            $name = $key === '' ? translation_manager::generate('coursetotal', 'grades') : $reference->fullname;
+            $referencevalues = $this->get_grade_category_settings($reference, $reference);
+            $currentvalues = $this->get_grade_category_settings($current[$key], $reference);
+            $valid = true;
+            foreach ($referencevalues as $setting => [$label, $value]) {
+                if ($value === $currentvalues[$setting][1]) {
+                    continue;
+                }
+                $valid = false;
+                $this->check->add_failed('', $link, translation_manager::generate(
+                    'referencesettings_gradecategory_setting_failing',
+                    $component,
+                    [
+                        'setting' => $label,
+                        'category' => $name,
+                        'comparison' => translation_manager::generate('referencesettings_comparison', $component, [
+                            'settingvaluereference' => $value,
+                            'settingvaluecurrent' => $currentvalues[$setting][1],
+                        ]),
+                    ]
+                ));
+            }
+            if ($valid) {
+                $this->check->add_successful('', $link, translation_manager::generate(
+                    'referencesettings_gradecategory_settings_success',
+                    $component,
+                    ['category' => $name]
+                ));
+            }
+        }
+    }
+
+    /**
+     * Get the settings of a gradebook category that are compared, with their label and a readable value.
+     *
+     * The weight of a category depends on how its parent aggregates the grades, which the reference course defines.
+     * Weights calculated by the gradebook are only compared when one of them was set by hand.
+     *
+     * @param stdClass $category Category with the settings of its grade item and the aggregation of its parent.
+     * @param stdClass $reference The same category in the reference course.
+     * @return array Readable [label, value] indexed by setting.
+     */
+    protected function get_grade_category_settings(stdClass $category, stdClass $reference): array {
+        $label = fn(string $identifier): string => translation_manager::generate($identifier, 'grades');
+        $yesno = fn($value): string => translation_manager::generate($value ? 'yes' : 'no', 'moodle');
+        $named = fn(array $names, $value): string => isset($names[(int) $value]) ? $label($names[(int) $value]) : (string) $value;
+        $number = fn($value): string => format_float((float) $value, 2, false, true);
+
+        $settings = [
+            'aggregation' => [$label('aggregation'), $named(self::GRADE_AGGREGATIONS, $category->aggregation)],
+            'aggregateonlygraded' => [$label('aggregateonlygraded'), $yesno($category->aggregateonlygraded)],
+            'aggregateoutcomes' => [$label('aggregateoutcomes'), $yesno($category->aggregateoutcomes)],
+            'droplow' => [$label('droplow'), (string) (int) $category->droplow],
+            'keephigh' => [$label('keephigh'), (string) (int) $category->keephigh],
+            'gradetype' => [$label('gradetype'), $named(self::GRADE_TYPES, $category->gradetype)],
+            'grademax' => [$label('grademax'), $number($category->grademax)],
+            'grademin' => [$label('grademin'), $number($category->grademin)],
+            'gradepass' => [$label('gradepass'), $number($category->gradepass)],
+            'hidden' => [$label('hidden'), $yesno($category->itemhidden)],
+            'display' => [$label('gradedisplaytype'), $category->display ?
+                $named(self::GRADE_DISPLAY_TYPES, $category->display) : translation_manager::generate('default', 'moodle')],
+            'decimals' => [$label('decimalpoints'), $category->decimals === null ?
+                translation_manager::generate('default', 'moodle') : (string) (int) $category->decimals],
+        ];
+        $parentaggregation = (int) $reference->parentaggregation;
+        if ($parentaggregation === 10) {
+            $settings['aggregationcoef'] = [$label('aggregationcoefweight'), $number($category->aggregationcoef)];
+        } else if (in_array($parentaggregation, [12, 13], true)) {
+            $settings['aggregationcoef'] = [$label('aggregationcoefextra'), $yesno((float) $category->aggregationcoef)];
+        }
+        if ($parentaggregation === 13 && ($reference->weightoverride || $category->weightoverride)) {
+            $settings['aggregationcoef2'] = [$label('weight'), $number($category->aggregationcoef2 * 100) . '%'];
+        }
+        return $settings;
+    }
+
+    /**
+     * Get the gradebook categories of a course with the settings of their grade item.
+     *
+     * @param int $courseid
+     * @return stdClass[] Indexed by name in lower case; the top category, which is the course total, has an empty key.
+     */
+    protected function get_grade_categories(int $courseid): array {
+        global $DB;
+
+        $records = $DB->get_records_sql(
+            "SELECT gc.id, gc.fullname, gc.parent, gc.aggregation, gc.aggregateonlygraded, gc.aggregateoutcomes,
+                    gc.droplow, gc.keephigh, gi.gradetype, gi.grademax, gi.grademin, gi.gradepass, gi.hidden AS itemhidden,
+                    gi.display, gi.decimals, gi.aggregationcoef, gi.aggregationcoef2, gi.weightoverride,
+                    p.aggregation AS parentaggregation
+               FROM {grade_categories} gc
+               JOIN {grade_items} gi ON gi.iteminstance = gc.id AND gi.courseid = gc.courseid
+                    AND gi.itemtype IN ('course', 'category')
+          LEFT JOIN {grade_categories} p ON p.id = gc.parent
+              WHERE gc.courseid = :courseid
+           ORDER BY gc.path",
+            ['courseid' => $courseid]
+        );
+        $categories = [];
+        foreach ($records as $record) {
+            $key = empty($record->parent) ? '' : core_text::strtolower(trim($record->fullname));
+            // A repeated category is already reported, so only the first one is compared.
+            $categories[$key] ??= $record;
+        }
+        return $categories;
+    }
+
+    /**
+     * Get the names of the gradebook categories of a course, without the top category, which is the course itself.
+     *
+     * @param int $courseid
+     * @return string[]
+     */
+    protected function get_grade_category_names(int $courseid): array {
+        global $DB;
+
+        return $DB->get_fieldset_select(
+            'grade_categories',
+            'fullname',
+            'courseid = ? AND parent IS NOT NULL ORDER BY path',
+            [$courseid]
+        );
+    }
+
+    /**
+     * Checks that the course has a course image, if required.
+     *
+     * @param stdClass $course
+     */
+    protected function check_course_image(stdClass $course): void {
+        if (!config::get(self::REQUIRE_IMAGE, self::REQUIRE_IMAGE_DEFAULT)) {
+            return;
+        }
+        $link = resolution_link_helper::get_link_to_course_edit_page($course);
+        if (course_summary_exporter::get_course_image($course)) {
+            $this->check->add_successful('', $link, translation_manager::generate(
+                'referencesettings_image_success',
+                'coursechecker_referencesettings'
+            ));
+        } else {
+            $this->check->add_failed('', $link, translation_manager::generate(
+                'referencesettings_image_missing',
+                'coursechecker_referencesettings'
+            ));
+        }
+    }
+
+    /**
+     * Checks that the course has a start date and no end date, if required.
+     *
+     * @param stdClass $course
+     */
+    protected function check_course_dates(stdClass $course): void {
+        if (!config::get(self::REQUIRE_START_DATE_ONLY, self::REQUIRE_START_DATE_ONLY_DEFAULT)) {
+            return;
+        }
+        $link = resolution_link_helper::get_link_to_course_edit_page($course);
+        $valid = true;
+        if (empty($course->startdate)) {
+            $valid = false;
+            $this->check->add_failed('', $link, translation_manager::generate(
+                'referencesettings_startdate_missing',
+                'coursechecker_referencesettings'
+            ));
+        }
+        if (!empty($course->enddate)) {
+            $valid = false;
+            $this->check->add_failed('', $link, translation_manager::generate(
+                'referencesettings_enddate_set',
+                'coursechecker_referencesettings',
+                ['enddate' => userdate($course->enddate, get_string('strftimedate', 'langconfig'))]
+            ));
+        }
+        if ($valid) {
+            $this->check->add_successful('', $link, translation_manager::generate(
+                'referencesettings_dates_success',
+                'coursechecker_referencesettings'
+            ));
+        }
+    }
+
+    /**
+     * Get the value of a setting used to compare it.
+     *
+     * The default grouping is an id of each course, so only whether there is one can be compared.
+     *
+     * @param string $setting
+     * @param stdClass $course
+     * @return mixed
+     */
+    protected function get_setting_value(string $setting, stdClass $course): mixed {
+        return $setting === 'defaultgroupingid' ? (int) !empty($course->$setting) : $course->$setting;
+    }
+
+    /**
+     * Get the translatable label of a setting.
+     *
+     * @param string $setting
+     * @return string
+     */
+    protected function get_setting_label(string $setting): string {
+        return isset(self::SETTING_LABELS[$setting]) ?
+            translation_manager::generate(self::SETTING_LABELS[$setting][0], self::SETTING_LABELS[$setting][1]) : $setting;
     }
 
     /**
@@ -112,7 +491,7 @@ class checker implements check_plugin_interface {
         $this->referencecourseid = (int) config::get(self::REFERENCE_COURSE, self::REFERENCE_COURSE_DEFAULT);
         $referencesettings = config::get(self::REFERENCE_COURSE_SETTINGS, self::REFERENCE_COURSE_SETTINGS_DEFAULT);
         if (is_array($referencesettings)) {
-            $this->referencesettings = $referencesettings;
+            $this->referencesettings = array_keys($referencesettings);
         } else {
             $this->referencesettings = explode(',', $referencesettings);
         }
@@ -155,12 +534,12 @@ class checker implements check_plugin_interface {
             $comparison = $this->get_comparison_string($setting, $referencecourse, $currentcourse);
 
             // When the settings are not equal.
-            if ($referencecourse->$setting != $currentcourse->$setting) {
+            if ($this->get_setting_value($setting, $referencecourse) != $this->get_setting_value($setting, $currentcourse)) {
                 $message = translation_manager::generate(
                     'referencesettings_failing',
                     'coursechecker_referencesettings',
                     [
-                        'setting' => $setting,
+                        'setting' => $this->get_setting_label($setting),
                         'comparison' => $comparison,
                     ]
                 );
@@ -172,7 +551,7 @@ class checker implements check_plugin_interface {
             $message = translation_manager::generate(
                 'referencesettings_success',
                 'coursechecker_referencesettings',
-                ['setting' => $setting]
+                ['setting' => $this->get_setting_label($setting)]
             );
             $this->check->add_successful('', $link, $message);
         }
@@ -190,7 +569,10 @@ class checker implements check_plugin_interface {
         return translation_manager::generate(
             'referencesettings_comparison',
             'coursechecker_referencesettings',
-            ['settingvaluereference' => $referencecourse->$setting, 'settingvaluecurrent' => $currentcourse->$setting]
+            [
+                'settingvaluereference' => $this->get_setting_value($setting, $referencecourse),
+                'settingvaluecurrent' => $this->get_setting_value($setting, $currentcourse),
+            ]
         );
     }
 
